@@ -1,1 +1,17 @@
 # iOS-interview
+### 设计到的技术点
+1. 内存管理
+2. runtime
+3. runloop
+4. KVO
+5. KVC
+6. 通知
+7. 多线程
+8. block
+9. 证书签名
+10. 启动优化
+11. 响应链
+12. autoreleasepool
+13. 源码分析
+14. 网络
+15. 数据结构与算法
