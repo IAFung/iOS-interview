@@ -64,6 +64,8 @@ d. block作为GCD的API的参数时
 #### 10. 启动优化
 #### 11. 响应链
 #### 12. autoreleasepool
+##### Autoreleasepool是由多个AutoreleasePoolPage以双向链表的形式连接起来的
+Autoreleasepool的基本原理：在每个自动释放池创建的时候，会在当前的AutoreleasePoolPage中设置一个标记位，在此期间，当有对象调用autorelsease时，会把对象添加到AutoreleasePoolPage中，若当前页添加满了，会初始化一个新页，然后用双向量表链接起来，并把新初始化的这一页设置为hotPage,当自动释放池pop时，从最下面依次往上pop，调用每个对象的release方法，直到遇到标志位。
 
 Runloop和Autorelease
 iOS在主线程的Runloop中注册了2个Observer
