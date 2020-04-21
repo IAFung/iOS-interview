@@ -3,6 +3,17 @@
 #### 1. 内存管理
 #### 2. runtime
 ```
+isa指针存储的内容
+nonpointer：(isa的第0位(isa的最后面那位)，共占1位)。为0表示这个isa只存储了地址值，为1表示这是一个优化过的isa。
+has_assoc：(isa的第1位，共占1位)。记录这个对象是否是关联对象,没有的话，释放更快。
+has_cxx_dtor：(isa的第2位，共占1位)。记录是否有c++的析构函数，没有的话，释放更快。
+shiftcls：(isa的第3-35位，共占33位)。记录类对象或元类对象的地址值。
+magic：(isa的第36-41位，共占6位)，用于在调试时分辨对象是否完成初始化。
+weakly_referenced：(isa的第42位，共占1位)，用于记录该对象是否被弱引用或曾经被弱引用过，没有被弱引用过的对象可以更快释放。
+deallocating：(isa的第43位，共占1位)，标志对象是否正在释放内存。
+has_sidetable_rc：(isa的第44位，共占1位)，用于标记是否有扩展的引用计数。当一个对象的引用计数比较少时，其引用计数就记录在isa中，当引用计数大于某个值时就会采用sideTable来协助存储引用计数。
+extra_rc：(isa的第45-63位，共占19位)，用来记录该对象的引用计数值-1(比如引用计数是5的话这里记录的就是4)。这里总共是19位，如果引用计数很大，19位存不下的话就会采用sideTable来协助存储，规则如下：当19位存满时，会将19位的一半(也就是上面定义的RC_HALF)存入sideTable中，如果此时引用计数又+1，那么是加在extra_rc上，当extra_rc又存满时，继续拿出RC_HALF的大小放入sideTable。当引用计数减少时，如果extra_rc的值减少到了0，那就从sideTable中取出RC_HALF大小放入extra_rc中。综上所述，引用计数不管是增加还是减少都是在extra_rc上进行的，而不会直接去操作sideTable，这是因为sideTable中有个自旋锁，而引用计数的增加和减少操作是非常频繁的，如果直接去操作sideTable会非常影响性能，所以这样设计来尽量减少对sideTable的访问。
+
 load和initialize的区别
 ① 调用时机----load在类被加载时调用,且在main函数之前调用. initialize在类或其子类收到第一条消息是调用
 ② 执行方式----load直接根据方法地址调用. initialize通过objc_msgSend调用
@@ -61,7 +72,136 @@ c. 当block作为参数传给Cocoa API时
 d. block作为GCD的API的参数时
 
 #### 9. 证书签名
-#### 10. 启动优化
+#### 10. App性能优化
+##### 启动优化
+```
+TA(App总启动时间) = T1(main()之前的加载时间) + T2(main()之后的加载时间) +T3(首页数据加载+闪屏页数据同步)
+T1 = 系统dylib(动态链接库)和自身App可执行文件的加载
+T2 = main方法执行之后到Delegate类中的didFinishLaunchingWithOptions方法执行结束前这段时间
+
+1. iOS的启动流程
+	根据 info.plist 里的设置加载闪屏，建立沙箱，对权限进行检查等
+	加载可执行文件
+	加载动态链接库，进行 rebase 指针调整和 bind 符号绑定
+	Objc 运行时的初始处理，包括 Objc 相关类的注册、category 注册、selector 唯一性检查等；
+	初始化，包括了执行 +load() 方法、attribute((constructor)) 修饰的函数的调用、创建 C++ 静态全局变量。
+	执行 main 函数
+	Application 初始化，到 applicationDidFinishLaunchingWithOptions 执行完
+	初始化帧渲染，到 viewDidAppear 执行完，用户可见可操作。
+2. 启动优化
+	减少动态库的加载
+	去除掉无用的类和C++全局变量的数量
+	尽量让load方法中的内容放到首屏渲染之后再去执行，或者使用initialize替换
+	去除在首屏展现之前非必要的功能
+	检查首屏展现之前主线程的耗时方法，将没必要的耗时方法滞后或者延迟执行
+
+```
+##### 卡顿优化
+```
+主线程中进化IO或其他耗时操作，解决：把耗时操作放到子线程中操作
+GCD并发队列短时间内创建大量任务，解决：使用线程池
+文本计算，解决：把计算放在子线程中避免阻塞主线程
+大量图像的绘制，解决：在子线程中对图片进行解码之后再展示
+高清图片的展示，解法：可在子线程中进行下采样处理之后再展示
+
+
+CPU层面:
+1 尽量用轻量级的对象，比如用不到事件处理的地方使用CALayer取代UIView
+2 尽量提前计算好布局（例如cell行高）
+3 不要频繁地调用和调整UIView的相关属性，比如frame、bounds、transform等属性，尽量减少不必要的调用和修改(UIView的显示属性实际都是CALayer的映射，而CALayer本身是没有这些属性的，都是初次调用属性时通过resolveInstanceMethod添加并创建Dictionary保存的，耗费资源)
+4 Autolayout会比直接设置frame消耗更多的CPU资源，当视图数量增长时会呈指数级增长.
+5 图片的size最好刚好跟UIImageView的size保持一致，减少图片显示时的处理计算
+6 控制一下线程的最大并发数量
+7 尽量把耗时的操作放到子线程
+8 文本处理（尺寸计算、绘制、CoreText和YYText）:
+(1). 计算文本宽高boundingRectWithSize:options:context: 和文本绘制drawWithRect:options:context:放在子线程操作
+(2). 使用CoreText自定义文本空间，在对象创建过程中可以缓存宽高等信息，避免像UILabel/UITextView需要多次计算(调整和绘制都要计算一次)，且CoreText直接使用了CoreGraphics占用内存小，效率高。（YYText）
+9 图片处理（解码、绘制）图片都需要先解码成bitmap才能渲染到UI上，iOS创建UIImage，不会立刻进行解码，只有等到显示前才会在主线程进行解码，固可以使用Core Graphics中的CGBitmapContextCreate相关操作提前在子线程中进行强制解压缩获得位图.
+10 TableViewCell 复用: 在cellForRowAtIndexPath:回调的时候只创建实例，快速返回cell，不绑定数据。在willDisplayCell: forRowAtIndexPath:的时候绑定数据（赋值）
+11 高度缓存: 在tableView滑动时，会不断调用heightForRowAtIndexPath:，当 cell 高度需要自适应时，每次回调都要计算高度，会导致 UI 卡顿。为了避免重复无意义的计算，需要缓存高度。
+12 视图层级优化: 不要动态创建视图,在内存可控的前提下，缓存subview。善用hidden。
+13 减少视图层级: 减少subviews个数，用layer绘制元素. 少用 clearColor，maskToBounds，阴影效果等。
+14 减少多余的绘制操作.
+15 图片优化：
+（1）不要用JPEG的图片，应当使用PNG图片。
+（2）子线程预解码（Decode），主线程直接渲染。因为当image没有Decode，直接赋值给imageView会进行一个Decode操作。
+（3）优化图片大小，尽量不要动态缩放(contentMode)。
+（4）尽可能将多张图片合成为一张进行显示。
+16 减少透明 view： 使用透明view会引起blending，在iOS的图形处理中，blending主要指的是混合像素颜色的计算。最直观的例子就是，我们把两个图层叠加在一起，如果第一个图层的透明的，则最终像素的颜色计算需要将第二个图层也考虑进来。这一过程即为Blending。
+17 理性使用-drawRect: 当你使用UIImageView在加载一个视图的时候，这个视图虽然依然有CALayer，但是却没有申请到一个后备的存储，取而代之的是使用一个使用屏幕外渲染，将CGImageRef作为内容，并用渲染服务将图片数据绘制到帧的缓冲区，就是显示到屏幕上，当我们滚动视图的时候，这个视图将会重新加载，浪费性能。所以对于使用-drawRect:方法，更倾向于使用CALayer来绘制图层。因为使用CALayer的-drawInContext:，Core Animation将会为这个图层申请一个后备存储，用来保存那些方法绘制进来的位图。那些方法内的代码将会运行在 CPU上，结果将会被上传到GPU。这样做的性能更为好些。静态界面建议使用-drawRect:的方式，动态页面不建议。
+18 按需加载:局部刷新，刷新一个cell就能解决的，坚决不刷新整个 section 或者整个tableView，刷新最小单元元素。
+利用runloop提高滑动流畅性，在滑动停止的时候再加载内容，像那种一闪而过的（快速滑动），就没有必要加载，可以使用默认的占位符填充内容。
+
+GPU层面:
+1 尽量避免短时间内大量图片的显示，尽可能将多张图片合成一张进行显示
+2 GPU能处理的最大纹理尺寸是4096x4096，一旦超过这个尺寸，就会占用CPU资源进行处理，所以纹理尽量不要超过这个尺寸
+3 GPU会将多个视图混合在一起再去显示，混合的过程会消耗CPU资源，尽量减少视图数量和层次
+4 减少透明的视图（alpha<1），不透明的就设置opaque为YES，GPU就不会去进行alpha的通道合成
+5 尽量避免出现离屏渲染.
+6 合理使用光栅化 shouldRasterize:光栅化是把GPU的操作转到CPU上，生成位图缓存，直接读取复用。CALayer会被光栅化为bitmap，shadows、cornerRadius等效果会被缓存。更新已经光栅化的layer，会造成离屏渲染。bitmap超过100ms没有使用就会移除。受系统限制，缓存的大小为 2.5X Screen Size。
+shouldRasterize 适合静态页面显示，动态页面会增加开销。如果设置了shouldRasterize为 YES，那也要记住设置rasterizationScale为contentsScale。
+7 异步渲染.在子线程绘制，主线程渲染。
+
+
+TableView卡顿: 
+1.cell 的行高不是固定值，需要计算，则要尽可能缓存行高值，避免重复计算行高。因为 heightForRowAtIndexPath:是调用最频繁的方法。
+2.滑动时按需加载，这个在大量图片展示，网络加载的时候很管用!(SDWebImage 已经实现异 步加载，配合这条性能杠杠的)。
+3.正确使用 reuseIdentifier 来重用 Cells
+4.尽量少用或不用透明图层
+5.如果 Cell 内现实的内容来自 web，使用异步加载，缓存请求结果
+6.减少 subviews 的数量
+7.在 heightForRowAtIndexPath:中尽量不使用 cellForRowAtIndexPath:，如果你需要用到它， 只用一次然后缓存结果
+8.所有的子视图都预先创建，如果不需要显示可以设置 hidden，尽量少动态给 Cell 添加 View
+9.颜色不要使用 alpha
+10.栅格化
+11.cell 的 subViews 的各级 opaque 值要设成 YES，尽量不要包含透明的子 View
+opaque 用于辅助绘图系统，表示 UIView 是否透明。在不透明的情况下，渲染视图时需要快速 地渲染，以提􏰀高性能。渲染最慢的操作之一是混合(blending)。提􏰀高性能的方法是减少混合操 作的次数，其实就是 GPU 的不合理使用，这是硬件来完成的(混合操作由 GPU 来执行，因为这 个硬件就是用来做混合操作的，当然不只是混合)。 优化混合操作的关键点是在平衡 CPU 和 GPU 的负载。还有就是 cell 的 layer 的 shouldRasterize 要设成 YES。
+12.cell 异步加载图片以及缓存
+13.异步绘制
+	(1)在绘制字符串时，尽可能使用 drawAtPoint: withFont:，而不要使用更复杂的 drawAtPoint:(CGPoint)point forWidth:(CGFloat)width withFont:(UIFont *)font lineBreakMode:(UILineBreakMode)lineBreakMode; 如果要绘制过长的字符串，建议自己先截 断，然后使用 drawAtPoint: withFont:方法绘制。
+	(2)在绘制图片时，尽量使用 drawAtPoint，而不要使用 drawInRect。drawInRect 如果在绘 制过程中对图片进行放缩，会特别消耗 CPU。
+	(3)其实，最快的绘制就是你不要做任何绘制。有时通过 UIGraphicsBeginImageContextWithOptions() 或者 CGBitmapContextCeate() 创建位图会显 得更有意义，从位图上面抓取图像，并设置为 CALayer 的内容。
+	如果你必须实现 -drawRect:，并且你必须绘制大量的东西，这将占用时间。
+	(4)如果绘制 cell 过程中，需要下载 cell 中的图片，建议在绘制 cell 一段时间后再开启图 片下载任务。譬如先画一个默认图片，然后在 0.5S 后开始下载本 cell 的图片。
+	(5)即使下载 cell 图片是在子线程中进行，在绘制 cell 过程中，也不能开启过多的子线程。 最好只有一个下载图片的子线程在活动。否则也会影响 UITableViewCell 的绘制，因而影响了 UITableViewCell 的滑动速度。(建议结合使用 NSOpeartion 和 NSOperationQueue 来下载图片， 如果想尽可能找的下载图片，可以把[self.queuesetMaxConcurrentOperationCount:4];)
+	(6)最好自己写一个 cache，用来缓存 UITableView 中的 UITableViewCell，这样在整个 UITableView 的生命周期里，一个 cell 只需绘制一次，并且如果发生内存不足，也可以有效的 释放掉缓存的 cell。
+14.不要将 tableview 的背景颜色设置成一个图片。这回严重影响 UITableView 的滑动速度。在 限时免费搜索里，我曾经翻过一个错误:self.tableView_.backgroundColor = [UIColorcolorWithPatternImage:[UIImageimageNamed:@"background.png"]]; 通过这种方式 设置 UITableView 的背景颜色会严重影响 UTIableView 的滑动流畅性。修改成 self.tableView_.backgroundColor = [UIColor clearColor];之后，fps 从 43 上升到 60 左右。 滑动比较流畅。
+```
+##### 耗电优化
+尽可能降低 CPU、GPU 的功耗。
+尽量少用 定时器。
+优化 I/O 操作。
+	不要频繁写入小数据，而是积攒到一定数量再写入
+	读写大量的数据可以使用 Dispatch_io ，GCD 内部已经做了优化。
+	数据量比较大时，建议使用数据库
+网络方面的优化
+	减少压缩网络数据 （XML -> JSON -> ProtoBuf），如果可能建议使用 ProtoBuf。
+	如果请求的返回数据相同，可以使用 NSCache 进行缓存
+	使用断点续传，避免因网络失败后要重新下载。
+	网络不可用的时候，不尝试进行网络请求
+	长时间的网络请求，要提供可以取消的操作
+	采取批量传输。下载视频流的时候，尽量一大块一大块的进行下载，广告可以一次下载多个
+定位层面的优化
+	如果只是需要快速确定用户位置，最好用 CLLocationManager 的 requestLocation 方法。定位完成后，会自动让定位硬件断电
+	如果不是导航应用，尽量不要实时更新位置，定位完毕就关掉定位服务
+	尽量降低定位精度，比如尽量不要使用精度最高的 kCLLocationAccuracyBest
+	需要后台定位时，尽量设置 pausesLocationUpdatesAutomatically 为 YES，如果用户不太可能移动的时候系统会自动暂停位置更新
+	尽量不要使用 startMonitoringSignificantLocationChanges，优先考虑 startMonitoringForRegion:
+硬件检测优化
+	用户移动、摇晃、倾斜设备时，会产生动作(motion)事件，这些事件由加速度计、陀螺仪、磁力计等硬件检测。在不需要检测的场合，应该及时关闭这些硬件
+##### 网络优化
+```
+优化DNS解析和缓存
+对传输的数据进行压缩，减少传输的数据
+使用缓存手段减少请求的发起次数
+使用策略来减少请求的发起次数，比如在上一个请求未着地之前，不进行新的请求
+避免网络抖动，提供重发机制
+```
+##### app瘦身
+![ss](https://user-gold-cdn.xitu.io/2020/4/17/17187331aeb0cc0f?imageView2/0/w/1280/h/960/format/webp/ignore-error/1)
+LinkMap分析每个类占用的大小.针对性的进行代码的体积的优化，比如三方库占用空间巨量，有没其他的替代方案。在取舍两个相同库的时候也可以根据体积的比重做出取舍。
+
+##### 编译速度优化
 #### 11. 响应链
 #### 12. autoreleasepool
 ##### Autoreleasepool是由多个AutoreleasePoolPage以双向链表的形式连接起来的
@@ -127,4 +267,5 @@ post请求是非安全,非幂等,不可缓存
 ##### 怎么禁止中间人攻击
 1. 将证书文件也放置在客户端一份, 确保服务端证书与本地证书一致才进行通信,但是证书过期会要重新更换
 2. 将证书公钥保存在本地,效果与放置证书一致,且证书过期公钥不会改变
-#### 15. 数据结构与算法
+
+#### 16. 数据结构与算法
