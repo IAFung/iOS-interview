@@ -1,12 +1,14 @@
 # iOS-interview
 ### 设计到的技术点
-1. 内存管理
-2. runtime
+#### 1. 内存管理
+#### 2. runtime
+```
 load和initialize的区别
 ① 调用时机----load在类被加载时调用,且在main函数之前调用. initialize在类或其子类收到第一条消息是调用
 ② 执行方式----load直接根据方法地址调用. initialize通过objc_msgSend调用
 ③ 调用顺序----load先编译先执行,如果继承,先执行父类再执行子类.分类也是先编译先执行. initialize如果类和其分类都实现最终只调用最后编译的分类中的同名方法.如果子类和父类都实现,先调用父类再调用子类
-3. runloop
+```
+#### 3. runloop
 概念: 一个线程一次只能执行一个任务，执行完成后线程就会退出。我们需要一个机制，让线程能随时处理事件但并不退出。这就是runloop.关键在于如何管理事件/消息，如何让线程在没有处理消息时休眠以避免资源占用、在有消息到来时立刻被唤醒。
 作用: 1. 保持程序的持续运行，在iOS线程中，会在main方法给主线程创建一个RunLoop，保证主线程不被销毁
 2. 处理APP中的各种事件（如touch，timer，performSelector等）
@@ -23,13 +25,13 @@ load和initialize的区别
 内部逻辑:
 ![runloop](https://user-gold-cdn.xitu.io/2019/12/24/16f36f8727cf58f1?imageView2/0/w/1280/h/960/format/webp/ignore-error/1)
 
-4. KVO
-5. KVC
+#### 4. KVO
+#### 5. KVC
 ![setKey](https://user-gold-cdn.xitu.io/2018/8/16/1653e63385b66420?imageView2/0/w/1280/h/960/format/webp/ignore-error/1)
 ![ValueForKey](https://user-gold-cdn.xitu.io/2018/8/16/1654345519a1f4a3?imageView2/0/w/1280/h/960/format/webp/ignore-error/1)
-6. 通知
-7. 多线程
-8. block
+#### 6. 通知
+#### 7. 多线程
+#### 8. block
 block是将函数及其执行上下文封装起来的对象
 变量截获:
 静态局部变量: 指针形式截获
@@ -56,10 +58,10 @@ b. 将block赋值给强指针
 c. 当block作为参数传给Cocoa API时
 d. block作为GCD的API的参数时
 
-9. 证书签名
-10. 启动优化
-11. 响应链
-12. autoreleasepool
+#### 9. 证书签名
+#### 10. 启动优化
+#### 11. 响应链
+#### 12. autoreleasepool
 
 Runloop和Autorelease
 iOS在主线程的Runloop中注册了2个Observer
@@ -68,8 +70,8 @@ iOS在主线程的Runloop中注册了2个Observer
 监听了kCFRunLoopBeforeWaiting事件，会调用objc_autoreleasePoolPop()、objc_autoreleasePoolPush()
 监听了kCFRunLoopBeforeExit事件，会调用objc_autoreleasePoolPop()
 
-13. 源码分析
-14. 网络
+#### 13. 源码分析
+#### 14. 网络
 TCP UDP区别:
 ```objective-c
 1、连接性:
@@ -121,4 +123,4 @@ HTTPS:
 怎么禁止中间人攻击
 1. 将证书文件也放置在客户端一份, 确保服务端证书与本地证书一致才进行通信,但是证书过期会要重新更换
 2. 将证书公钥保存在本地,效果与放置证书一致,且证书过期公钥不会改变
-15. 数据结构与算法
+#### 15. 数据结构与算法
