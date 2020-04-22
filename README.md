@@ -1,6 +1,19 @@
 # iOS-interview
 ### 设计到的技术点
 #### 1. 内存管理
+| 内存管理方法                      | 具体实现                                     |
+| --------------------------- | ---------------------------------------- |
+| alloc                       | 经过一系列的函数调用栈，最终通过调用 C 函数`calloc`来申请内存空间，并初始化对象的`isa`，但并没有设置对象的引用计数值为 1。 |
+| init                        | 基类的`init`方法啥都没干，只是将`alloc`创建的对象返回。我们可以重写`init`方法来对`alloc`创建的实例做一些初始化操作。 |
+| new                         | `new`方法很简单，只是嵌套了`alloc`和`init`。          |
+| copy、mutableCopy            | 调用了`copyWithZone`和`mutableCopyWithZone`方法。 |
+| retainCount                 | ① 如果`isa`不是`nonpointer`，引用计数值 = `SideTable`中的引用计数表中存储的值 + 1；② 如果`isa`是`nonpointer`，引用计数值 = `isa`中的`extra_rc`存储的值 + 1 +`SideTable`中的引用计数表中存储的值。 |
+| retain                      | ① 如果`isa`不是`nonpointer`，就对`Sidetable`中的引用计数进行 +1；② 如果`isa`是`nonpointer`，就将`isa`中的`extra_rc`存储的引用计数进行 +1，如果溢出，就将`extra_rc`中`RC_HALF`（`extra_rc`满值的一半）个引用计数转移到`sidetable`中存储。 |
+| release                     | ① 如果`isa`不是`nonpointer`，就对`Sidetable`中的引用计数进行 -1，如果引用计数 =0，就`dealloc`对象；② 如果`isa`是`nonpointer`，就将`isa`中的`extra_rc`存储的引用计数进行 -1。如果下溢，即`extra_rc`中的引用计数已经为 0，判断`has_sidetable_rc`是否为`true`即是否有使用`Sidetable`存储。如果有的话就申请从`Sidetable`中申请`RC_HALF`个引用计数转移到`extra_rc`中存储，如果不足`RC_HALF`就有多少申请多少，然后将`Sidetable`中的引用计数值减去`RC_HALF`（或是小于`RC_HALF`的实际值），将实际申请到的引用计数值 -1 后存储到`extra_rc`中。如果`extra_rc`中引用计数为 0 且`has_sidetable_rc`为`false`或者`Sidetable`中的引用计数也为 0 了，那就`dealloc`对象。 |
+| dealloc                     | ① 判断销毁对象前有没有需要处理的东西（如弱引用、关联对象、`C++`的析构函数、`SideTabel`的引用计数表等等）；② 如果没有就直接调用`free`函数销毁对象；③ 如果有就先调用`object_dispose`做一些释放对象前的处理（置弱引用指针置为`nil`、移除关联对象、`object_cxxDestruct`、在`SideTabel`的引用计数表中擦出引用计数等待），再用`free`函数销毁对象。 |
+| 清除`weak`，`weak`指针置为`nil`的过程 | 当一个对象被销毁时，在`dealloc`方法内部经过一系列的函数调用栈，通过两次哈希查找，第一次根据对象的地址找到它所在的`Sidetable`，第二次根据对象的地址在`Sidetable`的`weak_table`中找到它的弱引用表。遍历弱引用数组，将指向对象的地址的`weak`变量全都置为`nil`。 |
+| 添加`weak`                    | 经过一系列的函数调用栈，最终在`weak_register_no_lock()`函数当中，进行弱引用变量的添加，具体添加的位置是通过哈希算法来查找的。如果对应位置已经存在当前对象的弱引用表（数组），那就把弱引用变量添加进去；如果不存在的话，就创建一个弱引用表，然后将弱引用变量添加进去。 |
+
 #### 2. runtime
 ```
 isa指针存储的内容
