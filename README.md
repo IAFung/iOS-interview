@@ -1,6 +1,9 @@
 # iOS-interview
 ### 设计到的技术点
 #### 1. 内存管理
+![分区](https://upload-images.jianshu.io/upload_images/1387472-53381455db3bb0c9.png?imageMogr2/auto-orient/strip|imageView2/2/w/984/format/webp)
+
+
 | 内存管理方法                      | 具体实现                                     |
 | --------------------------- | ---------------------------------------- |
 | alloc                       | 经过一系列的函数调用栈，最终通过调用 C 函数`calloc`来申请内存空间，并初始化对象的`isa`，但并没有设置对象的引用计数值为 1。 |
