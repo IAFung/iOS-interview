@@ -29,7 +29,7 @@ TaggedPointer
         NSString *string2 = [NSString stringWithFormat:@"abcdefghi"]; //NSTaggedPointerString
         NSString *string3 = [NSString stringWithFormat:@"abcdefghij"]; //__NSCFString
 1. 通过字面量@"..."创建的字符串为__NSCFConstantString类型,存储在字符串常量区.相同内容的 __NSCFConstantString 对象的地址相同，也就是说常量字符串对象是一种单例，可以通过 == 判断字符串内容是否相同。
-2. __NSCFString继承于NSMutableString.存储在堆区,需要维护引用计数.
+2. __NSCFString存储在堆区,需要维护引用计数.
 3. 使用stringWithFormat方法创建的字符串,当指针不足以存储字符串内容(超过8个字节),字符串为__NSCFString类型,反之为NSTaggedPointerString
 4. 对可变字符串进行copy操作时,当指针不足以存储字符串内容(超过8个字节),拷贝的字符串为__NSCFString类型,反之为NSTaggedPointerString
 5. 对__NSCFConstantString和NSTaggedPointerString进行浅copy,只是拷贝指针,不改变类型.
