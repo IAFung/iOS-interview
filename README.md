@@ -17,6 +17,25 @@
 | 清除`weak`，`weak`指针置为`nil`的过程 | 当一个对象被销毁时，在`dealloc`方法内部经过一系列的函数调用栈，通过两次哈希查找，第一次根据对象的地址找到它所在的`Sidetable`，第二次根据对象的地址在`Sidetable`的`weak_table`中找到它的弱引用表。遍历弱引用数组，将指向对象的地址的`weak`变量全都置为`nil`。 |
 | 添加`weak`                    | 经过一系列的函数调用栈，最终在`weak_register_no_lock()`函数当中，进行弱引用变量的添加，具体添加的位置是通过哈希算法来查找的。如果对应位置已经存在当前对象的弱引用表（数组），那就把弱引用变量添加进去；如果不存在的话，就创建一个弱引用表，然后将弱引用变量添加进去。 |
 
+TaggedPointer
+```Objective-C
+	NSString *a = @"a"; //__NSCFConstantString
+        NSMutableString *b = [a mutableCopy]; //__NSCFString
+        NSString *c = [a copy]; //__NSCFConstantString
+        NSString *d = [[a mutableCopy] copy]; //NSTaggedPointerString
+        NSString *e = [NSString stringWithString:a]; //__NSCFConstantString
+        NSString *f = [NSString stringWithFormat:@"f"]; //NSTaggedPointerString
+        NSString *string1 = [NSString stringWithFormat:@"abcdefg"]; //NSTaggedPointerString
+        NSString *string2 = [NSString stringWithFormat:@"abcdefghi"]; //NSTaggedPointerString
+        NSString *string3 = [NSString stringWithFormat:@"abcdefghij"]; //__NSCFString
+1. 通过字面量@"..."创建的字符串为__NSCFConstantString类型,存储在字符串常量区.相同内容的 __NSCFConstantString 对象的地址相同，也就是说常量字符串对象是一种单例，可以通过 == 判断字符串内容是否相同。
+2. __NSCFString继承于NSMutableString.存储在堆区,需要维护引用计数.
+3. 使用stringWithFormat方法创建的字符串,当指针不足以存储字符串内容(超过8个字节),字符串为__NSCFString类型,反之为NSTaggedPointerString
+4. 对可变字符串进行copy操作时,当指针不足以存储字符串内容(超过8个字节),拷贝的字符串为__NSCFString类型,反之为NSTaggedPointerString
+5. 对__NSCFConstantString和NSTaggedPointerString进行浅copy,只是拷贝指针,不改变类型.
+6. __NSCFConstantString和NSTaggedPointerString不需要维护引用计数.__NSCFString在堆区,需要维护引用计数
+```
+
 #### 2. runtime
 ```
 isa指针存储的内容
