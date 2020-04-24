@@ -1,6 +1,7 @@
 # iOS-interview
+
+### 涉及到的技术点
 [TOC]
-### 设计到的技术点
 #### 1. 内存管理
 ![分区](https://upload-images.jianshu.io/upload_images/1387472-53381455db3bb0c9.png?imageMogr2/auto-orient/strip|imageView2/2/w/984/format/webp)
 
